@@ -1,5 +1,6 @@
 import { Bot, session, InlineKeyboard, Context } from "grammy";
 import { storage } from "./storage";
+import { config } from "./config"; // Import centralized config
 import { type User as DbUser } from "@shared/schema";
 import { DateTime } from "luxon";
 
@@ -9,12 +10,12 @@ type MyContext = Context;
 let bot: Bot<MyContext>;
 
 export async function startBot() {
-  if (!process.env.TELEGRAM_BOT_TOKEN) {
+  if (!config.telegramBotToken) {
     console.warn("TELEGRAM_BOT_TOKEN is not set. Bot will not start.");
     return;
   }
 
-  bot = new Bot<MyContext>(process.env.TELEGRAM_BOT_TOKEN);
+  bot = new Bot<MyContext>(config.telegramBotToken);
 
   // --- Middleware ---
   // Log every request
@@ -72,29 +73,21 @@ export async function startBot() {
       if (!channel) return ctx.reply("Channel not found.");
 
       // Logic: Send Image + Button
-      // In a real scenario, we'd generate a temporary chat invite link here using:
-      // const invite = await ctx.api.createChatInviteLink(channel.telegramChannelId, { member_limit: 1, expire_date: ... });
-      // But for this demo/MVP, we'll use the 'primaryLink' or a mock.
       const inviteLink = channel.primaryLink || "https://t.me/CrunchyRollChannel";
 
       // Send Image
-      // We'd use settings for image/caption.
       const settings = await storage.getBotSettings();
       const caption = settings['caption']?.text || "Please Join The Channel By Clicking The Link Or Button And This Link Will Expire within few minutes.";
-      // Mock Image (if no file_id in settings)
+      
       const msg1 = await ctx.reply("🔗 Channel Link 🔗\n\n" + inviteLink, {
         reply_markup: new InlineKeyboard().url(settings['button_text']?.text || "⛩️ 𝗖𝗟𝗜𝗖𝗞 𝗛𝗘𝗥𝗘 𝗧𝗢 𝗝𝗢𝗜𝗇 ⛩️", inviteLink)
       });
       
       const msg2 = await ctx.reply(caption, { reply_to_message_id: msg1.message_id });
 
-      // Delete after 30 mins (1800000 ms)
+      // Delete after 30 mins
       deleteAfter(ctx, msg1.message_id, 30 * 60 * 1000);
       deleteAfter(ctx, msg2.message_id, 30 * 60 * 1000);
-
-      // Revoke logic: The prompt says "Revoke after 30 mins".
-      // We can rely on the `expiresAt` check on next click, OR set a timeout to update DB.
-      // Since server might restart, relying on `expiresAt` in DB (checked at start of this block) is safer.
       return;
     }
 
@@ -153,15 +146,34 @@ export async function startBot() {
   // --- Admin Commands ---
   // Middleware to check admin
   const isAdmin = async (ctx: Context, next: Function) => {
-    // For MVP, allow everyone or check hardcoded ID + DB
-    // In production, check storage.getAdmin(ctx.from.id)
-    // Here we'll just let it slide for demo or check against env var
-    // const admin = await storage.getAdmin(ctx.from!.id);
-    // if (!admin) return ctx.reply("Not authorized.");
-    await next();
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    // Check if Owner (from Config)
+    if (userId === config.ownerId) {
+      return next();
+    }
+
+    // Check if Admin (from DB)
+    const admin = await storage.getAdmin(userId);
+    if (admin) {
+      return next();
+    }
+
+    // Not authorized
+    return ctx.reply("⚠️ You are not authorized to use this command.");
   };
 
+  // Apply Admin Middleware to these commands
+  const adminCommands = ["addchannel", "channels", "stats", "broadcast", "addadmin", "deladmin", "admins"];
+  
+  // We'll wrap individual command handlers instead of a global .use() to allow mixed usage if needed later
+  
   bot.command("addchannel", async (ctx) => {
+    if (ctx.from?.id !== config.ownerId && !(await storage.getAdmin(ctx.from!.id))) {
+      return ctx.reply("⚠️ Not authorized.");
+    }
+
     // Format: /addchannel [Anime Name] [Channel Id]
     const args = ctx.match as string;
     const parts = args.split(' ');
@@ -171,11 +183,6 @@ export async function startBot() {
     const name = parts.join(' ');
 
     try {
-      // Check bot admin status in channel
-      // const chatMember = await ctx.api.getChatMember(channelId, ctx.me.id);
-      // if (chatMember.status !== 'administrator') return ctx.reply("I am not admin in that channel.");
-      
-      // Mock success for now
       await storage.createChannel({
         name,
         telegramChannelId: channelId,
@@ -190,6 +197,10 @@ export async function startBot() {
   });
 
   bot.command("channels", async (ctx) => {
+    if (ctx.from?.id !== config.ownerId && !(await storage.getAdmin(ctx.from!.id))) {
+      return ctx.reply("⚠️ Not authorized.");
+    }
+
     const channels = await storage.getChannels();
     if (channels.length === 0) return ctx.reply("No channels added.");
     
@@ -199,6 +210,20 @@ export async function startBot() {
     });
     
     ctx.reply(text, { parse_mode: "Markdown" });
+  });
+
+  bot.command("stats", async (ctx) => {
+    if (ctx.from?.id !== config.ownerId && !(await storage.getAdmin(ctx.from!.id))) {
+      return ctx.reply("⚠️ Not authorized.");
+    }
+
+    const userCount = await storage.getUserCount();
+    const channelCount = await storage.getChannelCount();
+    const linkCount = await storage.getActiveLinkCount();
+
+    await ctx.reply(
+      `📊 **Bot Statistics**\n\n👥 Total Users: ${userCount}\n📺 Total Channels: ${channelCount}\n🔗 Active Links: ${linkCount}`
+    );
   });
 
   // Start
