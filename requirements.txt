@@ -1,8 +1,7 @@
-pyrogram
-tgcrypto
+pyrogram==2.0.106
+TgCrypto
 motor
 dnspython
-python-dotenv
+pyromod==2.2.0
 aiohttp
-uvloop
-apscheduler
+python-dotenv
