@@ -1,48 +1,40 @@
 import base64
-import re
-import time
+import asyncio
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# Base64 Encoding/Decoding for Deep Links
 async def encode(string):
-    string_bytes = string.encode("ascii")
+    string_bytes = str(string).encode("ascii")
     base64_bytes = base64.urlsafe_b64encode(string_bytes)
-    base64_string = (base64_bytes.decode("ascii")).strip("=")
-    return base64_string
+    return base64_bytes.decode("ascii").strip("=")
 
 async def decode(base64_string):
     base64_string = base64_string.strip("=")
     base64_bytes = (base64_string + "=" * (-len(base64_string) % 4)).encode("ascii")
     string_bytes = base64.urlsafe_b64decode(base64_bytes)
-    string = string_bytes.decode("ascii")
-    return string
+    return string_bytes.decode("ascii")
 
-def get_readable_time(seconds: int) -> str:
-    count = 0
-    up_time = ""
-    time_list = []
-    time_suffix_list = ["s", "m", "h", "days"]
-    while count < 4:
-        count += 1
-        remainder, result = divmod(seconds, 60) if count < 3 else divmod(seconds, 24)
-        if seconds == 0 and remainder == 0:
-            break
-        time_list.append(int(result))
-        seconds = int(remainder)
-    hmm = len(time_list)
-    for x in range(hmm):
-        time_list[x] = str(time_list[x]) + time_suffix_list[x]
-    if len(time_list) == 4:
-        up_time += f"{time_list.pop()}, "
-    time_list.reverse()
-    up_time += ":".join(time_list)
-    return up_time
+# Time Parser (1H, 30M, 30s) -> Seconds
+def get_seconds(time_string):
+    try:
+        unit = time_string[-1].lower()
+        value = int(time_string[:-1])
+        if unit == 's': return value
+        elif unit == 'm': return value * 60
+        elif unit == 'h': return value * 3600
+        elif unit == 'd': return value * 86400
+        return 0
+    except:
+        return 0
 
-async def get_join_button(url):
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⛩️ 𝗖𝗟𝗜𝗖𝗞 𝗛𝗘𝗥𝗘 𝗧𝗢 𝗝𝗢𝗜𝗡 ⛩️", url=url)]]
-    )
-
-async def check_force_sub(client, user_id, channel_id):
-    # Implement logic if needed, user didn't explicitly ask for logic but mentioned "Force Sub" in customization
-    # Placeholder
-    return True
+# Readable Time (Seconds -> "1h 30m 10s")
+def get_readable_time(seconds):
+    result = ""
+    (days, remainder) = divmod(seconds, 86400)
+    if days > 0: result += f"{int(days)}d "
+    (hours, remainder) = divmod(remainder, 3600)
+    if hours > 0: result += f"{int(hours)}h "
+    (minutes, seconds) = divmod(remainder, 60)
+    if minutes > 0: result += f"{int(minutes)}m "
+    result += f"{int(seconds)}s"
+    return result.strip()
