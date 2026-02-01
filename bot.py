@@ -1,45 +1,49 @@
-from pyrogram import Client, idle
-from config import Config
-from database import db
-import logging
 import asyncio
+import logging
+from pyrogram import Client
+from aiohttp import web
+from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID, PORT
+from database.database import add_admin, init_defaults
+import pyromod # Important for user input
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s - %(levelname)s] - %(name)s - %(message)s",
-    datefmt='%d-%b-%y %H:%M:%S',
-)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 class Bot(Client):
     def __init__(self):
         super().__init__(
-            name="LinkShareBot",
-            api_id=Config.API_ID,
-            api_hash=Config.API_HASH,
-            bot_token=Config.BOT_TOKEN,
-            plugins=dict(root="plugins"),
-            workers=50,
-            sleep_threshold=10,
+            "CrunchyBot",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            bot_token=BOT_TOKEN,
+            plugins=dict(root="plugins")
         )
 
     async def start(self):
         await super().start()
         me = await self.get_me()
-        logger.info(f"Bot Started as @{me.username}")
+        self.username = me.username
+        self.uptime = asyncio.get_running_loop().time()
         
-        # Notify Owner
+        # Init Database Defaults
+        await add_admin(OWNER_ID)
+        await init_defaults()
+        
+        print(f"Bot Started as {me.username}")
         try:
-            if Config.OWNER_ID:
-                await self.send_message(Config.OWNER_ID, "<b>🤖 Bot Restarted ♻️</b>")
-        except Exception as e:
-            logger.warning(f"Could not notify owner: {e}")
+            await self.send_message(OWNER_ID, "<b>🤖 Bot Started Successfully!</b>")
+        except:
+            pass
+
+        # Web Server for Uptime
+        app = web.Application()
+        app.router.add_get("/", lambda r: web.Response(text="Bot Running"))
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
 
     async def stop(self, *args):
         await super().stop()
-        logger.info("Bot Stopped")
 
 if __name__ == "__main__":
-    # Ensure event loop
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    loop.run_until_complete(Bot().run())
+    Bot().run()
